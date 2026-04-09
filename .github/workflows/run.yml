@@ -2,22 +2,23 @@ name: HHKB Mercari Monitor
 
 on:
   schedule:
-    - cron: '*/10 * * * *'
-  workflow_dispatch:
-
-# Fixes the Node.js 20 deprecation warning
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    - cron: '*/10 * * * *'  # Runs every 10 minutes
+  workflow_dispatch:        # Manual test button
 
 jobs:
   run-search:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      # Updated to v6 to support Node.js 24 natively
+      - uses: actions/checkout@v6
+      
+      # Updated to v6 to support Node.js 24 natively
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
+
       - run: pip install mercapi aiohttp
+
       - name: Run search
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
