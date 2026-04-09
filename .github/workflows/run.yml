@@ -2,23 +2,20 @@ name: HHKB Mercari Monitor
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Runs every 10 minutes
-  workflow_dispatch:        # Manual test button
+    - cron: '*/10 * * * *'  # Keep this as a backup
+  workflow_dispatch:        # Keep for manual tests
+  repository_dispatch:      # Add this line
+    types: [mercari_check]   # Add this line
 
 jobs:
   run-search:
     runs-on: ubuntu-latest
     steps:
-      # Updated to v6 to support Node.js 24 natively
       - uses: actions/checkout@v6
-      
-      # Updated to v6 to support Node.js 24 natively
       - uses: actions/setup-python@v6
         with:
           python-version: '3.10'
-
       - run: pip install mercapi aiohttp
-
       - name: Run search
         env:
           DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
