@@ -3,7 +3,7 @@ import os
 import aiohttp
 from mercapi import Mercapi
 
-# Search terms (Added the lens for testing)
+# Search terms (Including the lens for testing)
 SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional", "Macro Topcor 30mm"]
 
 # Keywords that mean it is NOT a Pro 1 (Modern keyboard models)
@@ -19,7 +19,7 @@ async def notify_discord(item):
         "content": "🚨 **MATCH DETECTED!**",
         "embeds": [{
             "title": item.name,
-            "url": f"https://jp.mercari.com/item/{item.id}",
+            "url": f"https://jp.mercari.com/item/{item.id_}",
             "description": f"**Price:** ¥{item.price:,}\n**Status:** {item.status}",
             "thumbnail": {"url": item.thumbnails[0] if item.thumbnails else ""},
             "color": 3066993
@@ -34,25 +34,26 @@ async def main():
     
     for term in SEARCH_TERMS:
         try:
+            print(f"Searching for: {term}")
             results = await m.search(term)
+            
             for item in results.items:
                 # 1. Skip if already checked in this run or if already sold
-                if item.id in processed_ids or item.status != "on_sale":
+                # FIXED: Changed 'id' to 'id_'
+                if item.id_ in processed_ids or item.status != "on_sale":
                     continue
-                processed_ids.add(item.id)
+                processed_ids.add(item.id_)
 
+                # 2. Filtering Logic (Search result items only have 'name')
                 name_upper = item.name.upper()
-                desc_upper = (item.description or "").upper()
-                full_text = name_upper + desc_upper
                 
-                # 2. Filtering Logic
-                is_forced = any(k in full_text for k in FORCE_KEEP)
+                is_forced = any(k in name_upper for k in FORCE_KEEP)
                 is_modern_keyboard = any(k in name_upper for k in EXCLUDE)
 
                 # Keep if it's forced (Pro 1/Lens) OR if it doesn't match modern keyboard tags
                 if is_forced or not is_modern_keyboard:
+                    print(f"Alerting for: {item.name}")
                     await notify_discord(item)
-                    print(f"Match found: {item.name}")
                     
         except Exception as e:
             print(f"Error searching for {term}: {e}")
