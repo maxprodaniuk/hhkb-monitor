@@ -2,7 +2,7 @@ name: HHKB Mercari Monitor
 
 on:
   schedule:
-    - cron: '*/10 * * * *'  # Keep this as a backup
+    - cron: '*/5 * * * *'  # Keep this as a backup
   workflow_dispatch:        # Keep for manual tests
   repository_dispatch:      # Add this line
     types: [mercari_check]   # Add this line
