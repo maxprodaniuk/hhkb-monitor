@@ -3,20 +3,20 @@ import os
 import aiohttp
 from mercapi import Mercapi
 
-# Search terms to cast the widest possible net
-SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional"]
+# Search terms (Added the lens for testing)
+SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional", "Macro Topcor 30mm"]
 
-# Keywords that mean it is NOT a Pro 1 (Modern models)
+# Keywords that mean it is NOT a Pro 1 (Modern keyboard models)
 EXCLUDE = ["PRO2", "PRO 2", "PRO3", "PRO 3", "HYBRID", "BT", "CLASSIC", "TYPE-S", "LITE", "STUDIO"]
 
-# Keywords that mean it IS a Pro 1 (Overrides the exclude list)
-FORCE_KEEP = ["PD-KB300", "初代"]
+# Keywords that mean it IS a Pro 1 or the test lens (Overrides the exclude list)
+FORCE_KEEP = ["PD-KB300", "初代", "TOPCOR"]
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
 async def notify_discord(item):
     payload = {
-        "content": "🚨 **HHKB PRO 1 DETECTED!**",
+        "content": "🚨 **MATCH DETECTED!**",
         "embeds": [{
             "title": item.name,
             "url": f"https://jp.mercari.com/item/{item.id}",
@@ -41,15 +41,16 @@ async def main():
                     continue
                 processed_ids.add(item.id)
 
-                # 2. Check the text for model info
                 name_upper = item.name.upper()
+                desc_upper = (item.description or "").upper()
+                full_text = name_upper + desc_upper
                 
-                # Logic: If it has Pro 1 keywords, keep it. 
-                # Otherwise, if it has "Pro 2/3/Hybrid" keywords, skip it.
-                is_pro1_tagged = any(k in name_upper or k in (item.description or "").upper() for k in FORCE_KEEP)
-                is_modern = any(k in name_upper for k in EXCLUDE)
+                # 2. Filtering Logic
+                is_forced = any(k in full_text for k in FORCE_KEEP)
+                is_modern_keyboard = any(k in name_upper for k in EXCLUDE)
 
-                if is_pro1_tagged or not is_modern:
+                # Keep if it's forced (Pro 1/Lens) OR if it doesn't match modern keyboard tags
+                if is_forced or not is_modern_keyboard:
                     await notify_discord(item)
                     print(f"Match found: {item.name}")
                     
