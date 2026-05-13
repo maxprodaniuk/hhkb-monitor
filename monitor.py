@@ -4,7 +4,7 @@ import aiohttp
 import time
 from mercapi import Mercapi
 
-# SEARCH TERMS - Broad enough to hit the title you provided
+# SEARCH TERMS
 SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional"]
 
 # FILTERING
@@ -14,8 +14,12 @@ FORCE_KEEP = ["PD-KB300", "初代"]
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
 async def notify_discord(item):
+    alert_title = "🚨 **NEW HHKB PRO 1 LISTING!**"
+    if item.status != "on_sale":
+        alert_title = "🚨 **NEW (BUT ALREADY SOLD) HHKB PRO 1!**"
+
     payload = {
-        "content": "🚨 **NEW HHKB PRO 1 LISTING!**",
+        "content": alert_title,
         "embeds": [{
             "title": item.name,
             "url": f"https://jp.mercari.com/item/{item.id_}",
@@ -32,20 +36,20 @@ async def main():
     processed_ids = set()
     alert_count = 0
     
-    # We only alert for items posted in the last 2 hours to avoid spamming you 
-    # with the same "For Sale" item forever, while still being safe.
     time_limit = time.time() - 7200 
     
     print(f"--- Heartbeat: Scan started at {time.ctime()} ---")
     
     for term in SEARCH_TERMS:
         try:
-            results = await m.search(term)
+            # Explicitly request newest listings first
+            results = await m.search(term, sort_by="created_time", sort_order="desc")
             items = results.items if results and results.items else []
             print(f"Term '{term}': Found {len(items)} raw results.")
             
             for item in items:
-                if item.id_ in processed_ids or item.status != "on_sale":
+                # Removed 'item.status != "on_sale"' to catch items sold between cron runs
+                if item.id_ in processed_ids:
                     continue
                 processed_ids.add(item.id_)
 
@@ -53,9 +57,7 @@ async def main():
                 is_pro1 = any(k in name_upper for k in FORCE_KEEP)
                 is_modern = any(k in name_upper for k in EXCLUDE)
 
-                # LOGIC: Valid Pro 1
                 if is_pro1 or not is_modern:
-                    # Only ping Discord if it's relatively new
                     if item.created > time_limit:
                         print(f"  >> VALID MATCH: {item.name} (Alerting!)")
                         await notify_discord(item)
