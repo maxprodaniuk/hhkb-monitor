@@ -13,18 +13,18 @@ FORCE_KEEP = ["PD-KB300", "初代"]
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
-async def notify_discord(item):
+async def notify_discord(item, item_id, name, price, status, thumbnail):
     alert_title = "🚨 **NEW HHKB PRO 1 LISTING!**"
-    if item.status != "on_sale":
+    if status != "on_sale":
         alert_title = "🚨 **NEW (BUT ALREADY SOLD) HHKB PRO 1!**"
 
     payload = {
         "content": alert_title,
         "embeds": [{
-            "title": item.name,
-            "url": f"https://jp.mercari.com/item/{item.id_}",
-            "description": f"**Price:** ¥{item.price:,}\n**Status:** {item.status}",
-            "thumbnail": {"url": item.thumbnails[0] if item.thumbnails else ""},
+            "title": name,
+            "url": f"https://jp.mercari.com/item/{item_id}",
+            "description": f"**Price:** ¥{price:,}\n**Status:** {status}",
+            "thumbnail": {"url": thumbnail},
             "color": 3066993
         }]
     }
@@ -42,28 +42,64 @@ async def main():
     
     for term in SEARCH_TERMS:
         try:
-            # Explicitly request newest listings first
             results = await m.search(term, sort_by="created_time", sort_order="desc")
-            items = results.items if results and results.items else []
+            
+            items = []
+            if hasattr(results, 'items') and not isinstance(results, dict):
+                items = results.items
+            elif isinstance(results, dict):
+                items = results.get('items', [])
+
             print(f"Term '{term}': Found {len(items)} raw results.")
             
             for item in items:
-                # Removed 'item.status != "on_sale"' to catch items sold between cron runs
-                if item.id_ in processed_ids:
-                    continue
-                processed_ids.add(item.id_)
+                # Handle Mercapi parsing failure returning string IDs instead of objects
+                if isinstance(item, str):
+                    try:
+                        item = await m.item(item)
+                    except Exception as e:
+                        print(f"  !! Failed to fetch item {item}: {e}")
+                        continue
 
-                name_upper = item.name.upper()
+                # Safely extract attributes regardless of whether item is a model or dict
+                item_id = getattr(item, 'id_', getattr(item, 'id', None))
+                if isinstance(item, dict):
+                    item_id = item.get('id_', item.get('id'))
+                    
+                if not item_id or item_id in processed_ids:
+                    continue
+                
+                processed_ids.add(item_id)
+
+                name = getattr(item, 'name', '') if not isinstance(item, dict) else item.get('name', '')
+                if not name:
+                    continue
+
+                name_upper = name.upper()
                 is_pro1 = any(k in name_upper for k in FORCE_KEEP)
                 is_modern = any(k in name_upper for k in EXCLUDE)
 
                 if is_pro1 or not is_modern:
-                    if item.created > time_limit:
-                        print(f"  >> VALID MATCH: {item.name} (Alerting!)")
-                        await notify_discord(item)
+                    # Mercapi SearchItem uses 'updated', fallback to 'created' or 0
+                    timestamp = 0
+                    if isinstance(item, dict):
+                        timestamp = item.get('updated', item.get('created', 0))
+                    else:
+                        timestamp = getattr(item, 'updated', getattr(item, 'created', 0))
+                    
+                    if timestamp > time_limit:
+                        print(f"  >> VALID MATCH: {name} (Alerting!)")
+                        
+                        price = getattr(item, 'price', 0) if not isinstance(item, dict) else item.get('price', 0)
+                        status = getattr(item, 'status', 'unknown') if not isinstance(item, dict) else item.get('status', 'unknown')
+                        
+                        thumbnails = getattr(item, 'thumbnails', []) if not isinstance(item, dict) else item.get('thumbnails', [])
+                        thumb_url = thumbnails[0] if thumbnails else ""
+                        
+                        await notify_discord(item, item_id, name, price, status, thumb_url)
                         alert_count += 1
                     else:
-                        print(f"  >> VALID MATCH: {item.name} (Skipping Discord: Already alerted/Old)")
+                        print(f"  >> VALID MATCH: {name} (Skipping Discord: Already alerted/Old)")
                         
         except Exception as e:
             print(f"  !! Error during '{term}': {e}")
