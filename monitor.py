@@ -2,6 +2,7 @@ import asyncio
 import os
 import aiohttp
 import time
+import json
 from datetime import datetime
 from mercapi import Mercapi
 
@@ -20,6 +21,18 @@ EXCLUDE = [
 FORCE_KEEP = ["PD-KB300", "初代"]
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
+STATE_FILE = "alert_state.json"
+MAX_ALERTS = 3
+
+def load_state():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, 'r') as f:
+            return json.load(f)
+    return {}
+
+def save_state(state):
+    with open(STATE_FILE, 'w') as f:
+        json.dump(state, f)
 
 async def notify_discord(item, item_id, name, price, status, thumbnail):
     alert_title = "🚨 **NEW HHKB PRO 1 LISTING!**"
@@ -41,7 +54,7 @@ async def notify_discord(item, item_id, name, price, status, thumbnail):
 
 async def main():
     m = Mercapi()
-    processed_ids = set()
+    alert_counts = load_state()
     alert_count = 0
     
     time_limit = time.time() - 7200 
@@ -65,17 +78,20 @@ async def main():
                     try:
                         item = await m.item(item)
                     except Exception as e:
-                        print(f"  !! Failed to fetch item {item}: {e}")
+                        print(f"   !! Failed to fetch item {item}: {e}")
                         continue
 
                 item_id = getattr(item, 'id_', getattr(item, 'id', None))
                 if isinstance(item, dict):
                     item_id = item.get('id_', item.get('id'))
                     
-                if not item_id or item_id in processed_ids:
+                if not item_id:
                     continue
                 
-                processed_ids.add(item_id)
+                # Check how many times we've alerted for this ID
+                current_alerts = alert_counts.get(item_id, 0)
+                if current_alerts >= MAX_ALERTS:
+                    continue
 
                 name = getattr(item, 'name', '') if not isinstance(item, dict) else item.get('name', '')
                 if not name:
@@ -111,9 +127,14 @@ async def main():
                         thumb_url = thumbnails[0] if thumbnails else ""
                         
                         await notify_discord(item, item_id, name, price, status, thumb_url)
+                        
+                        # Increment count and save to file
+                        alert_counts[item_id] = current_alerts + 1
+                        save_state(alert_counts)
+                        
                         alert_count += 1
                     else:
-                        print(f"  >> VALID MATCH: {name} (Skipping Discord: Already alerted/Old)")
+                        print(f"  >> VALID MATCH: {name} (Skipping Discord: Old)")
                         
         except Exception as e:
             print(f"  !! Error during '{term}': {e}")
