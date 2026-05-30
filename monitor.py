@@ -2,6 +2,7 @@ import asyncio
 import os
 import aiohttp
 import time
+from datetime import datetime
 from mercapi import Mercapi
 
 # SEARCH TERMS
@@ -42,8 +43,6 @@ async def main():
     
     for term in SEARCH_TERMS:
         try:
-            # Removed unsupported sort_by="created_time" and sort_order="desc" 
-            # which causes the Mercari API to return an unexpected payload that crashes the library's parser.
             results = await m.search(term)
             
             items = []
@@ -85,6 +84,16 @@ async def main():
                         timestamp = item.get('updated', item.get('created', 0))
                     else:
                         timestamp = getattr(item, 'updated', getattr(item, 'created', 0))
+                    
+                    # Convert datetime object to float for comparison
+                    if isinstance(timestamp, datetime):
+                        timestamp = timestamp.timestamp()
+                    elif isinstance(timestamp, str):
+                        try:
+                            # Handle potential ISO string fallback
+                            timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).timestamp()
+                        except ValueError:
+                            timestamp = 0
                     
                     if timestamp > time_limit:
                         print(f"  >> VALID MATCH: {name} (Alerting!)")
