@@ -42,7 +42,9 @@ async def main():
     
     for term in SEARCH_TERMS:
         try:
-            results = await m.search(term, sort_by="created_time", sort_order="desc")
+            # Removed unsupported sort_by="created_time" and sort_order="desc" 
+            # which causes the Mercari API to return an unexpected payload that crashes the library's parser.
+            results = await m.search(term)
             
             items = []
             if hasattr(results, 'items') and not isinstance(results, dict):
@@ -53,7 +55,6 @@ async def main():
             print(f"Term '{term}': Found {len(items)} raw results.")
             
             for item in items:
-                # Handle Mercapi parsing failure returning string IDs instead of objects
                 if isinstance(item, str):
                     try:
                         item = await m.item(item)
@@ -61,7 +62,6 @@ async def main():
                         print(f"  !! Failed to fetch item {item}: {e}")
                         continue
 
-                # Safely extract attributes regardless of whether item is a model or dict
                 item_id = getattr(item, 'id_', getattr(item, 'id', None))
                 if isinstance(item, dict):
                     item_id = item.get('id_', item.get('id'))
@@ -80,7 +80,6 @@ async def main():
                 is_modern = any(k in name_upper for k in EXCLUDE)
 
                 if is_pro1 or not is_modern:
-                    # Mercapi SearchItem uses 'updated', fallback to 'created' or 0
                     timestamp = 0
                     if isinstance(item, dict):
                         timestamp = item.get('updated', item.get('created', 0))
