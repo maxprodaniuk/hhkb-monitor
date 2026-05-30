@@ -9,7 +9,14 @@ from mercapi import Mercapi
 SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional"]
 
 # FILTERING
-EXCLUDE = ["PRO2", "PRO 2", "PRO3", "PRO 3", "HYBRID", "BT", "CLASSIC", "TYPE-S", "LITE", "STUDIO"]
+REQUIRED = ["HHKB", "PD-KB", "HAPPY HACKING", "初代"]
+EXCLUDE = [
+    "PRO2", "PRO 2", "PRO3", "PRO 3", "HYBRID", "BT", "CLASSIC", "TYPE-S", "LITE", "STUDIO",
+    "KB400", "KB420", "KB600", "KB620", "KB800", "KB820", "KB200", "KB210", "KB220",
+    "キートップ", "キーキャップ", "KEYCAP", "ルーフ", "ROOF", "パームレスト", "アームレスト", 
+    "吸振", "ケース", "バッグ", "BAG", "ケーブル", "CABLE", "部品", "パーツ", "ジャンク",
+    "DIY", "ラジオ", "カセット", "インク", "カプラ", "アンプ", "サンディング", "シーケンサ"
+]
 FORCE_KEEP = ["PD-KB300", "初代"]
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
@@ -75,22 +82,21 @@ async def main():
                     continue
 
                 name_upper = name.upper()
-                is_pro1 = any(k in name_upper for k in FORCE_KEEP)
-                is_modern = any(k in name_upper for k in EXCLUDE)
+                
+                is_relevant = any(r in name_upper for r in REQUIRED)
+                is_excluded = any(e in name_upper for e in EXCLUDE)
 
-                if is_pro1 or not is_modern:
+                if is_relevant and not is_excluded:
                     timestamp = 0
                     if isinstance(item, dict):
                         timestamp = item.get('updated', item.get('created', 0))
                     else:
                         timestamp = getattr(item, 'updated', getattr(item, 'created', 0))
                     
-                    # Convert datetime object to float for comparison
                     if isinstance(timestamp, datetime):
                         timestamp = timestamp.timestamp()
                     elif isinstance(timestamp, str):
                         try:
-                            # Handle potential ISO string fallback
                             timestamp = datetime.fromisoformat(timestamp.replace('Z', '+00:00')).timestamp()
                         except ValueError:
                             timestamp = 0
