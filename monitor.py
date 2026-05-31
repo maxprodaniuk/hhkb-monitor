@@ -13,26 +13,35 @@ SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional"]
 REQUIRED = ["HHKB", "PD-KB", "HAPPY HACKING", "初代"]
 EXCLUDE = [
     "PRO2", "PRO 2", "PRO3", "PRO 3", "HYBRID", "BT", "CLASSIC", "TYPE-S", "LITE", "STUDIO",
+    "PROFESSIONAL2", "PROFESSIONAL 2", "PROFESSIONAL3", "PROFESSIONAL 3",
     "KB400", "KB420", "KB600", "KB620", "KB800", "KB820", "KB200", "KB210", "KB220",
     "キートップ", "キーキャップ", "KEYCAP", "ルーフ", "ROOF", "パームレスト", "アームレスト", 
-    "吸振", "ケース", "バッグ", "BAG", "ケーブル", "CABLE", "部品", "パーツ", "ジャンク",
+    "吸振", "振動", "吸収", "マット", "ケース", "バッグ", "BAG", "ケーブル", "CABLE", "部品", "パーツ", "ジャンク",
     "DIY", "ラジオ", "カセット", "インク", "カプラ", "アンプ", "サンディング", "シーケンサ"
 ]
 FORCE_KEEP = ["PD-KB300", "初代"]
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
-STATE_FILE = "alert_state.json"
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+STATE_FILE = os.path.join(SCRIPT_DIR, "alert_state.json")
 MAX_ALERTS = 3
 
 def load_state():
     if os.path.exists(STATE_FILE):
-        with open(STATE_FILE, 'r') as f:
-            return json.load(f)
+        try:
+            with open(STATE_FILE, 'r') as f:
+                return json.load(f)
+        except Exception:
+            return {}
     return {}
 
 def save_state(state):
-    with open(STATE_FILE, 'w') as f:
-        json.dump(state, f)
+    try:
+        with open(STATE_FILE, 'w') as f:
+            json.dump(state, f)
+    except Exception as e:
+        print(f"   !! Failed to save state file: {e}")
 
 async def notify_discord(item, item_id, name, price, status, thumbnail):
     alert_title = "🚨 **NEW HHKB PRO 1 LISTING!**"
@@ -55,9 +64,10 @@ async def notify_discord(item, item_id, name, price, status, thumbnail):
 async def main():
     m = Mercapi()
     alert_counts = load_state()
+    processed_ids = set()
     alert_count = 0
     
-    time_limit = time.time() - 7200 
+    time_limit = time.time() - 900 
     
     print(f"--- Heartbeat: Scan started at {time.ctime()} ---")
     
@@ -81,14 +91,19 @@ async def main():
                         print(f"   !! Failed to fetch item {item}: {e}")
                         continue
 
-                item_id = getattr(item, 'id_', getattr(item, 'id', None))
+                item_id_raw = getattr(item, 'id_', getattr(item, 'id', None))
                 if isinstance(item, dict):
-                    item_id = item.get('id_', item.get('id'))
+                    item_id_raw = item.get('id_', item.get('id'))
                     
-                if not item_id:
+                if not item_id_raw:
                     continue
                 
-                # Check how many times we've alerted for this ID
+                item_id = str(item_id_raw)
+                
+                if item_id in processed_ids:
+                    continue
+                processed_ids.add(item_id)
+                
                 current_alerts = alert_counts.get(item_id, 0)
                 if current_alerts >= MAX_ALERTS:
                     continue
@@ -128,7 +143,6 @@ async def main():
                         
                         await notify_discord(item, item_id, name, price, status, thumb_url)
                         
-                        # Increment count and save to file
                         alert_counts[item_id] = current_alerts + 1
                         save_state(alert_counts)
                         
