@@ -3,6 +3,7 @@ import os
 import aiohttp
 import time
 import json
+import unicodedata
 from datetime import datetime
 from mercapi import Mercapi
 
@@ -11,21 +12,40 @@ SEARCH_TERMS = ["PD-KB300", "HHKB 初代", "HHKB Professional"]
 
 # FILTERING
 REQUIRED = ["HHKB", "PD-KB", "HAPPY HACKING", "初代"]
+
 EXCLUDE = [
+    # Japanese Layout (JP) Exclusions
+    "JP", "日本語",
+    
+    # Special / Anniversary Editions
+    "30周年", "30TH", "雪",
+    
+    # Later Gens & Non-Topre Models (ASCII + Katakana)
     "PRO2", "PRO 2", "PRO3", "PRO 3", "HYBRID", "BT", "CLASSIC", "TYPE-S", "LITE", "STUDIO",
     "PROFESSIONAL2", "PROFESSIONAL 2", "PROFESSIONAL3", "PROFESSIONAL 3",
+    "プロ2", "プロ 2", "プロ3", "プロ 3", "ハイブリッド", "クラシック", "ライト", "スタジオ",
     "KB400", "KB420", "KB600", "KB620", "KB800", "KB820", "KB200", "KB210", "KB220",
+    "KB01", "KB02", "PD-KB01", "PD-KB02",
+    
+    # Accessories & Non-Keyboard Items
     "キートップ", "キーキャップ", "KEYCAP", "ルーフ", "ROOF", "パームレスト", "アームレスト", 
     "吸振", "振動", "吸収", "マット", "ケース", "バッグ", "BAG", "ケーブル", "CABLE", "部品", "パーツ", "ジャンク",
-    "DIY", "ラジオ", "カセット", "インク", "カプラ", "アンプ", "サンディング", "シーケンサ"
+    "DIY", "ラジオ", "カセット", "インク", "カプラ", "アンプ", "サンディング", "シーケンサ",
+    "タイピングベッド", "カバー", "キーセット", "漆"
 ]
-FORCE_KEEP = ["PD-KB300", "初代"]
+
+FORCE_KEEP = ["PD-KB300"]
 
 WEBHOOK_URL = os.getenv("DISCORD_WEBHOOK")
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 STATE_FILE = os.path.join(SCRIPT_DIR, "alert_state.json")
-MAX_ALERTS = 3
+
+def normalize_text(text: str) -> str:
+    """Normalizes Unicode (converts full-width to half-width ASCII) and uppercases."""
+    if not text:
+        return ""
+    return unicodedata.normalize('NFKC', text).upper()
 
 def load_state():
     if os.path.exists(STATE_FILE):
@@ -43,17 +63,18 @@ def save_state(state):
     except Exception as e:
         print(f"   !! Failed to save state file: {e}")
 
-async def notify_discord(item, item_id, name, price, status, thumbnail):
-    alert_title = "🚨 **NEW HHKB PRO 1 LISTING!**"
-    if status != "on_sale":
-        alert_title = "🚨 **NEW (BUT ALREADY SOLD) HHKB PRO 1!**"
+async def notify_discord(item_id, name, price, status_str, thumbnail):
+    # Properly evaluate Enum/string representation for on-sale status
+    is_on_sale = "on_sale" in status_str.lower() or "onsale" in status_str.lower()
+    
+    alert_title = "🚨 **NEW HHKB PRO 1 LISTING!**" if is_on_sale else "🚨 **NEW (BUT ALREADY SOLD) HHKB PRO 1!**"
 
     payload = {
         "content": alert_title,
         "embeds": [{
             "title": name,
             "url": f"https://jp.mercari.com/item/{item_id}",
-            "description": f"**Price:** ¥{price:,}\n**Status:** {status}",
+            "description": f"**Price:** ¥{price:,}\n**Status:** {status_str}",
             "thumbnail": {"url": thumbnail},
             "color": 3066993
         }]
@@ -63,8 +84,7 @@ async def notify_discord(item, item_id, name, price, status, thumbnail):
 
 async def main():
     m = Mercapi()
-    alert_counts = load_state()
-    processed_ids = set()
+    alert_state = load_state()  # Persistent registry of already-alerted items
     alert_count = 0
     
     time_limit = time.time() - 900 
@@ -100,24 +120,23 @@ async def main():
                 
                 item_id = str(item_id_raw)
                 
-                if item_id in processed_ids:
-                    continue
-                processed_ids.add(item_id)
-                
-                current_alerts = alert_counts.get(item_id, 0)
-                if current_alerts >= MAX_ALERTS:
+                # Skip items that have already been alerted to avoid re-pings on Mercari timestamp updates
+                if item_id in alert_state:
                     continue
 
                 name = getattr(item, 'name', '') if not isinstance(item, dict) else item.get('name', '')
                 if not name:
                     continue
 
-                name_upper = name.upper()
+                normalized_name = normalize_text(name)
                 
-                is_relevant = any(r in name_upper for r in REQUIRED)
-                is_excluded = any(e in name_upper for e in EXCLUDE)
+                is_force_keep = any(fk in normalized_name for fk in FORCE_KEEP)
+                is_relevant = any(r in normalized_name for r in REQUIRED)
+                is_excluded = any(e in normalized_name for e in EXCLUDE)
 
-                if is_relevant and not is_excluded:
+                should_alert = is_force_keep or (is_relevant and not is_excluded)
+
+                if should_alert:
                     timestamp = 0
                     if isinstance(item, dict):
                         timestamp = item.get('updated', item.get('created', 0))
@@ -136,15 +155,17 @@ async def main():
                         print(f"  >> VALID MATCH: {name} (Alerting!)")
                         
                         price = getattr(item, 'price', 0) if not isinstance(item, dict) else item.get('price', 0)
-                        status = getattr(item, 'status', 'unknown') if not isinstance(item, dict) else item.get('status', 'unknown')
+                        
+                        status_obj = getattr(item, 'status', 'unknown') if not isinstance(item, dict) else item.get('status', 'unknown')
+                        status_str = getattr(status_obj, 'name', getattr(status_obj, 'value', str(status_obj)))
                         
                         thumbnails = getattr(item, 'thumbnails', []) if not isinstance(item, dict) else item.get('thumbnails', [])
                         thumb_url = thumbnails[0] if thumbnails else ""
                         
-                        await notify_discord(item, item_id, name, price, status, thumb_url)
+                        await notify_discord(item_id, name, price, str(status_str), thumb_url)
                         
-                        alert_counts[item_id] = current_alerts + 1
-                        save_state(alert_counts)
+                        alert_state[item_id] = True
+                        save_state(alert_state)
                         
                         alert_count += 1
                     else:
